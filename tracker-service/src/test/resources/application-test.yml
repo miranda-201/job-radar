@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:tracker;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false   # API tests call the ingest service directly; no broker needed
+
+jobradar:
+  jwt:
+    secret: test-secret-test-secret-test-secret-test-secret
+
+management:
+  health:
+    rabbit:
+      enabled: false   # no broker in API tests

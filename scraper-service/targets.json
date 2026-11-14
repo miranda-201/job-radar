@@ -1,0 +1,8 @@
+[
+  {"id": "stripe", "company": "Stripe", "source": "greenhouse", "board": "stripe", "keywords": ["intern", "new grad", "university"]},
+  {"id": "databricks", "company": "Databricks", "source": "greenhouse", "board": "databricks", "keywords": ["intern", "new grad", "university"]},
+  {"id": "robinhood", "company": "Robinhood", "source": "greenhouse", "board": "robinhood", "keywords": ["intern", "new grad"]},
+  {"id": "figma", "company": "Figma", "source": "greenhouse", "board": "figma", "keywords": ["intern", "early career"]},
+  {"id": "palantir", "company": "Palantir", "source": "lever", "board": "palantir", "keywords": ["intern", "new grad"]},
+  {"id": "nvidia", "company": "NVIDIA", "source": "workday", "board": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "keywords": ["intern"]}
+]

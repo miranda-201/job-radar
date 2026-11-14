@@ -1,0 +1,97 @@
+name: jobradar
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ---------------------------------------------------------------- infrastructure
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jobradar
+      POSTGRES_USER: jobradar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobradar}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobradar -d jobradar"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    <<: *restart
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-jobradar}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-jobradar}
+    ports:
+      - "15672:15672"   # management UI: http://localhost:15672
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------------------------------------------------------------- services
+  tracker-service:
+    <<: *restart
+    build: ./tracker-service
+    image: ${REGISTRY:-jobradar}/jobradar-tracker-service:${TAG:-local}
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/jobradar
+      DATABASE_USER: jobradar
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-jobradar}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-jobradar}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-jobradar}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  scraper-service:
+    <<: *restart
+    build: ./scraper-service
+    image: ${REGISTRY:-jobradar}/jobradar-scraper-service:${TAG:-local}
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-jobradar}:${RABBITMQ_PASSWORD:-jobradar}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
+      SCRAPE_INTERVAL_SECONDS: ${SCRAPE_INTERVAL_SECONDS:-900}
+    depends_on:
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      # Start after the consumer has declared its queue. (Not required for correctness:
+      # unroutable publishes are retried, but this avoids a noisy first sweep.)
+      tracker-service: { condition: service_healthy }
+
+  frontend:
+    <<: *restart
+    build: ./frontend
+    image: ${REGISTRY:-jobradar}/jobradar-frontend:${TAG:-local}
+    ports:
+      - "${APP_PORT:-3000}:80"
+    depends_on:
+      tracker-service: { condition: service_healthy }
+      scraper-service: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  rabbitdata:
+  redisdata:
