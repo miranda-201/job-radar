@@ -22,4 +22,6 @@ public record JobDiscoveredEvent(
         OffsetDateTime postedAt,
         OffsetDateTime discoveredAt,
         String category,
-        String term) {}
+        String term,
+        String postedAtSource,
+        String degreeLevel) {}

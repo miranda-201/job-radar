@@ -118,6 +118,13 @@ def create_app(
 
     api = "/api/scraper"
 
+    def _ensure_idle() -> None:
+        # Don't queue a second sweep behind a running one (it would also outlast proxy timeouts).
+        if app.state.runner.busy:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "A sweep is already running; new postings will appear when it finishes."
+            )
+
     @app.get(f"{api}/targets", response_model=list[Target], tags=["targets"])
     async def list_targets(_: str = Depends(require_user)) -> list[Target]:
         return await app.state.store.list_targets()
@@ -146,6 +153,7 @@ def create_app(
 
     @app.post(f"{api}/scrape", response_model=ScrapeReport, tags=["scrape"])
     async def scrape_all(_: str = Depends(require_user)) -> ScrapeReport:
+        _ensure_idle()
         return await app.state.runner.run_all()
 
     @app.post(f"{api}/targets/{{target_id}}/scrape", response_model=TargetResult, tags=["scrape"])
@@ -153,6 +161,7 @@ def create_app(
         target = await app.state.store.get_target(target_id)
         if not target:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "target not found")
+        _ensure_idle()
         return await app.state.runner.run_one(target)
 
     @app.get(f"{api}/scrape/last", response_model=ScrapeReport | None, tags=["scrape"])

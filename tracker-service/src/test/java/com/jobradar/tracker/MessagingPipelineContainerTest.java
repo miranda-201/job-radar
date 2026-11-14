@@ -82,20 +82,23 @@ class MessagingPipelineContainerTest {
         var now = java.time.OffsetDateTime.now();
         ingest.ingest(new com.jobradar.tracker.job.JobDiscoveredEvent("e-pg1", "job.discovered", "github_list",
                 "PgCo", "pg-1", "Platform Engineer Intern", "Remote", "https://pg.example/1",
-                now.minusDays(1), now, "cloud_infra", "Summer 2027"));
+                now.minusDays(1), now, "cloud_infra", "Summer 2027", "employer", "graduate"));
         ingest.ingest(new com.jobradar.tracker.job.JobDiscoveredEvent("e-pg2", "job.discovered", "github_list",
                 "PgCo", "pg-2", "Data Intern", "Remote", "https://pg.example/2",
-                null, now, "data_ml", null));
+                null, now, "data_ml", null, "list", null));
         var page = org.springframework.data.domain.PageRequest.of(0, 10);
         var epoch = java.time.Instant.EPOCH;
 
-        assertThat(jobs.searchByPostedDate(null, null, null, epoch, page).getTotalElements()).isGreaterThanOrEqualTo(2);
-        assertThat(jobs.searchByPostedDate("PgCo", "cloud_infra", "%platform%", epoch, page).getContent())
+        assertThat(jobs.searchByPostedDate(null, null, null, epoch, false, page).getTotalElements()).isGreaterThanOrEqualTo(2);
+        assertThat(jobs.searchByPostedDate("PgCo", "cloud_infra", "%platform%", epoch, false, page).getContent())
                 .extracting(com.jobradar.tracker.job.JobPosting::getExternalId).containsExactly("pg-1");
         // Undated posting falls back to its discovery time, so it counts as "recent" and sorts first.
-        assertThat(jobs.searchByPostedDate("PgCo", null, null, java.time.Instant.now().minusSeconds(3600), page)
+        assertThat(jobs.searchByPostedDate("PgCo", null, null, java.time.Instant.now().minusSeconds(3600), false, page)
                 .getContent()).extracting(com.jobradar.tracker.job.JobPosting::getExternalId).containsExactly("pg-2");
-        assertThat(jobs.searchByDiscoveredDate("PgCo", null, null, epoch, page).getTotalElements()).isEqualTo(2);
+        assertThat(jobs.searchByDiscoveredDate("PgCo", null, null, epoch, false, page).getTotalElements()).isEqualTo(2);
+        // Undergrad filter: the graduate-only posting is hidden, the unknown one stays.
+        assertThat(jobs.searchByPostedDate("PgCo", null, null, epoch, true, page).getContent())
+                .extracting(com.jobradar.tracker.job.JobPosting::getExternalId).containsExactly("pg-2");
         assertThat(jobs.countByCategory()).isNotEmpty();
     }
 }

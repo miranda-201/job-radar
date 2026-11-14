@@ -148,3 +148,41 @@ _INTERN = _rx(r"interns?", r"internships?", r"co-?ops?", r"apprentice(?:ship)?",
 
 def looks_like_internship(title: str) -> bool:
     return _INTERN.search(title) is not None
+
+
+class DegreeLevel(str, Enum):
+    UNDERGRAD = "undergrad"  # open to bachelor's/associate's students
+    GRADUATE = "graduate"  # Master's / PhD / MBA students only
+
+
+_UNDERGRAD = _rx(r"undergrad(?:uate)?s?", r"bachelor'?s?", r"b\.?s\.?/m\.?s\.?", r"associate'?s degree")
+_GRAD = re.compile(
+    r"\b(?:ph\.?\s?d\.?s?|doctoral|doctorate|postdoc(?:toral)?|master'?s|masters|mba"
+    r"|graduate (?:student|research|intern(?:ship)?|co-?op|level|program))\b",
+    re.IGNORECASE,
+)
+_GRAD_ABBREV = re.compile(r"(?<![\w.])(?:MS|M\.S\.)(?![\w])")  # case-sensitive: "MS/PhD", "Intern (MS)"
+_NEW_GRAD = _rx(r"new grad(?:uate)?s?", r"recent grad(?:uate)?s?")
+
+_DEGREE_LABELS_UNDERGRAD = {"bachelor's", "associate's", "bachelors", "associates", "undergraduate"}
+_DEGREE_LABELS_GRAD = {"master's", "masters", "phd", "mba", "doctorate"}
+
+
+def degree_level(title: str, degrees: list[str] | None = None) -> DegreeLevel | None:
+    """Who a posting is for. None means unknown (treated as open to undergrads).
+
+    The title is written by the employer, so a degree named there wins ("PhD Intern",
+    "Research Intern - BS/MS/PhD"). A list's degree tags are a fallback only: list
+    maintainers tag generously, e.g. marking a "PhD Studentship" as open to Bachelor's.
+    """
+    if _UNDERGRAD.search(title):
+        return DegreeLevel.UNDERGRAD
+    cleaned = _NEW_GRAD.sub(" ", title)
+    if _GRAD.search(cleaned) or _GRAD_ABBREV.search(cleaned):
+        return DegreeLevel.GRADUATE
+    labels = {d.strip().lower() for d in degrees or [] if d}
+    if labels & _DEGREE_LABELS_UNDERGRAD:
+        return DegreeLevel.UNDERGRAD
+    if labels & _DEGREE_LABELS_GRAD:
+        return DegreeLevel.GRADUATE
+    return None

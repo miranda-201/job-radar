@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.models import JobPosting, SourceType, Target
+from app.models import DateSource, JobPosting, SourceType, Target
 
 PAGE_SIZE = 20  # Workday rejects larger pages
 MAX_PAGES = 10
@@ -65,7 +65,8 @@ def parse_posted_on(text: str | None, now: datetime | None = None) -> datetime |
         days = 1
     else:
         days = int(m.group(2))
-    return (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Noon UTC keeps the calendar day stable across US/EU timezones (see enrich.py).
+    return (now - timedelta(days=days)).replace(hour=12, minute=0, second=0, microsecond=0)
 
 
 def parse(payload: dict[str, Any], target: Target, site: WorkdaySite) -> list[JobPosting]:
@@ -83,6 +84,7 @@ def parse(payload: dict[str, Any], target: Target, site: WorkdaySite) -> list[Jo
                 location=job.get("locationsText"),
                 url=site.job_url(path),
                 posted_at=parse_posted_on(job.get("postedOn")),
+                date_source=DateSource.APPROXIMATE,
             )
         )
     return postings

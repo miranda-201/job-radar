@@ -16,8 +16,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
-from app.classify import RoleCategory, classify
-from app.models import JobPosting, SourceType, Target
+from app.classify import RoleCategory, classify, degree_level
+from app.models import DateSource, JobPosting, SourceType, Target
 
 DEFAULT_PATH = ".github/scripts/listings.json"
 DEFAULT_BRANCH = "dev"
@@ -86,6 +86,10 @@ def parse(payload: list[dict[str, Any]], target: Target) -> list[JobPosting]:
                 category=category,
                 term=_term(job),
                 internship=True,  # these lists only contain internships
+                date_source=DateSource.LIST,
+                degree_level=degree_level(
+                    title, job.get("degrees")
+                ),  # when the list added it, not when the employer posted
             )
         )
     return postings

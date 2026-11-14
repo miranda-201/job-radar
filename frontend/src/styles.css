@@ -222,3 +222,7 @@ button.icon { background: none; padding: 0 4px; color: var(--muted); font-size: 
 .src-github_list { color: var(--text); }
 .check { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .toolbar select { flex: 0 0 auto; }
+.chip-divider { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
+.posted.unverified { font-weight: 500; color: var(--muted); border-bottom: 1px dotted var(--muted); cursor: help; }
+.posted[title] { cursor: help; }
+.tag.grad { color: #b54708; }

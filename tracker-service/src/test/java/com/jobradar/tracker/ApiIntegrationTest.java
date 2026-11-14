@@ -63,8 +63,14 @@ class ApiIntegrationTest {
 
     private JobDiscoveredEvent event(String source, String company, String externalId, String title, String url,
                                      OffsetDateTime postedAt, String category) {
+        return event(source, company, externalId, title, url, postedAt, category, "employer", null);
+    }
+
+    private JobDiscoveredEvent event(String source, String company, String externalId, String title, String url,
+                                     OffsetDateTime postedAt, String category, String dateSource, String degree) {
         return new JobDiscoveredEvent(UUID.randomUUID().toString(), "job.discovered", source, company,
-                externalId, title, "Chicago, IL", url, postedAt, OffsetDateTime.now(), category, "Summer 2027");
+                externalId, title, "Chicago, IL", url, postedAt, OffsetDateTime.now(), category, "Summer 2027",
+                dateSource, degree);
     }
 
     // ---- auth ----------------------------------------------------------------
@@ -112,7 +118,7 @@ class ApiIntegrationTest {
         assertThat(ingest.ingest(e)).isEqualTo(Outcome.DUPLICATE);
         // Redelivery with a different eventId is still the same posting.
         assertThat(ingest.ingest(new JobDiscoveredEvent("other-id", e.eventType(), e.source(), e.company(),
-                e.externalId(), e.title(), e.location(), e.url(), e.postedAt(), e.discoveredAt(), null, null)))
+                e.externalId(), e.title(), e.location(), e.url(), e.postedAt(), e.discoveredAt(), null, null, null, null)))
                 .isEqualTo(Outcome.DUPLICATE);
     }
 
@@ -164,6 +170,49 @@ class ApiIntegrationTest {
         call(get("/api/jobs").param("category", "marketing"), token, null).andExpect(status().isBadRequest());
         call(get("/api/jobs").param("sort", "random"), token, null).andExpect(status().isBadRequest());
         call(get("/api/jobs/categories"), token, null).andExpect(status().isOk());
+    }
+
+    @Test
+    void employerVerifiedDateReplacesListDateFromAnotherSource() throws Exception {
+        String token = register();
+        String co = "Trinzic-" + UUID.randomUUID();
+        var listedAt = OffsetDateTime.parse("2026-11-14T03:06:00Z");
+        var employerPosted = OffsetDateTime.parse("2026-11-05T00:00:00Z");
+        // A GitHub list sees it first, with only its own "added to list" date.
+        ingest.ingest(event("github_list", co, "van-1", "Software Engineering Internship",
+                "https://trinzic.wd115.myworkdayjobs.com/c/job/X_R1", listedAt, "software", "list", null));
+        // The same role later arrives with the employer's verified date and a degree level.
+        assertThat(ingest.ingest(event("github_list", co, "sim-1", "Software Engineering Internship",
+                "https://trinzic.wd115.myworkdayjobs.com/c/job/X_R1?utm_source=Simplify", employerPosted, "software",
+                "employer", "undergrad"))).isEqualTo(Outcome.CROSS_SOURCE_DUPLICATE);
+
+        JsonNode job = read(call(get("/api/jobs").param("q", co), token, null)).get("items").get(0);
+        assertThat(job.get("postedAt").asText()).startsWith("2026-11-05");
+        assertThat(job.get("postedDateSource").asText()).isEqualTo("employer");
+        assertThat(job.get("degreeLevel").asText()).isEqualTo("undergrad");
+
+        // A later *list* sighting must never overwrite a verified employer date.
+        ingest.ingest(event("github_list", co, "van-1", "Software Engineering Internship",
+                "https://trinzic.wd115.myworkdayjobs.com/c/job/X_R1", listedAt.plusDays(1), "software", "list", null));
+        assertThat(read(call(get("/api/jobs").param("q", co), token, null)).get("items").get(0)
+                .get("postedAt").asText()).startsWith("2026-11-05");
+    }
+
+    @Test
+    void undergradOnlyHidesGraduateOnlyPostings() throws Exception {
+        String token = register();
+        String tag = "deg" + UUID.randomUUID().toString().substring(0, 8);
+        var posted = OffsetDateTime.now().minusDays(1);
+        ingest.ingest(event("lever", "Co", tag + "-1", "SWE Intern " + tag, "https://d/" + tag + "/1", posted,
+                "software", "employer", "undergrad"));
+        ingest.ingest(event("lever", "Co", tag + "-2", "PhD Research Intern " + tag, "https://d/" + tag + "/2", posted,
+                "data_ml", "employer", "graduate"));
+        ingest.ingest(event("lever", "Co", tag + "-3", "Data Intern " + tag, "https://d/" + tag + "/3", posted,
+                "data_ml", "employer", null)); // unknown -> still shown to undergrads
+
+        assertThat(titles(read(call(get("/api/jobs").param("q", tag), token, null)))).hasSize(3);
+        assertThat(titles(read(call(get("/api/jobs").param("q", tag).param("undergradOnly", "true"), token, null))))
+                .containsExactlyInAnyOrder("SWE Intern " + tag, "Data Intern " + tag);
     }
 
     private static java.util.List<String> titles(JsonNode page) {

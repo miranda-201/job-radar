@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 import httpx
 from prometheus_client import Counter, Histogram
 
-from app.classify import classify
-from app.models import JobDiscoveredEvent, ScrapeReport, Target, TargetResult
+from app.classify import classify, degree_level
+from app.enrich import Enricher
+from app.models import JobDiscoveredEvent, JobPosting, ScrapeReport, Target, TargetResult
 from app.publisher import Publisher
 from app.sources import JobSource, source_for
 from app.store import Store
@@ -33,6 +34,7 @@ class ScrapeRunner:
         client: httpx.AsyncClient,
         concurrency: int = 4,
         source_lookup: Callable[[Target], JobSource] = source_for,
+        enricher: Enricher | None = None,
     ):
         self._store = store
         self._publisher = publisher
@@ -40,11 +42,17 @@ class ScrapeRunner:
         self._sem = asyncio.Semaphore(concurrency)
         self._source_lookup = source_lookup
         self._lock = asyncio.Lock()
+        self._enricher = enricher or Enricher(client)
         self.last_report: ScrapeReport | None = None
+
+    @property
+    def busy(self) -> bool:
+        return self._lock.locked()
 
     async def run_all(self) -> ScrapeReport:
         # One sweep at a time; a manual trigger during a scheduled run just waits.
         async with self._lock:
+            self._enricher.new_sweep()
             started = datetime.now(UTC)
             targets = [t for t in await self._store.list_targets() if t.enabled]
             results = await asyncio.gather(*(self._run_guarded(t) for t in targets))
@@ -55,6 +63,7 @@ class ScrapeRunner:
 
     async def run_one(self, target: Target) -> TargetResult:
         async with self._lock:
+            self._enricher.new_sweep()
             return await self._run_guarded(target)
 
     async def _run_guarded(self, target: Target) -> TargetResult:
@@ -76,20 +85,29 @@ class ScrapeRunner:
         result.fetched = len(postings)
         JOBS_FETCHED.labels(target.id).inc(len(postings))
 
+        fresh: list[JobPosting] = []
         for posting in postings:
             if posting.category is None:
                 posting.category = classify(posting.title)
+            if posting.degree_level is None:
+                posting.degree_level = degree_level(posting.title)
             if not target.accepts(posting):
                 continue
             result.matched += 1
-            if not await self._store.mark_seen(target.id, posting.dedup_key):
-                continue
+            if await self._store.mark_seen(target.id, posting.dedup_key):
+                fresh.append(posting)
+
+        # Only brand-new postings pay for date verification (one ATS call each).
+        await self._enricher.enrich_all(fresh)
+
+        for i, posting in enumerate(fresh):
             try:
                 await self._publisher.publish(JobDiscoveredEvent.from_posting(posting))
             except Exception:
-                # Roll back the dedup mark so the posting is retried on the next sweep
-                # instead of being silently lost.
-                await self._store.forget_seen(target.id, posting.dedup_key)
+                # Roll back the dedup marks of everything not yet published, so those postings
+                # are retried on the next sweep instead of being silently lost.
+                for unpublished in fresh[i:]:
+                    await self._store.forget_seen(target.id, unpublished.dedup_key)
                 raise
             result.new += 1
             JOBS_PUBLISHED.labels(target.id).inc()

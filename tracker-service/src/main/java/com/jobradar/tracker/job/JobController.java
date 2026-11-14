@@ -39,7 +39,8 @@ public class JobController {
     }
 
     public record JobResponse(Long id, String source, String company, String title, String location, String url,
-                              Instant postedAt, Instant discoveredAt, String category, String term, boolean tracked) {}
+                              Instant postedAt, String postedDateSource, Instant discoveredAt, String category,
+                              String term, String degreeLevel, boolean tracked) {}
 
     public record PageResponse<T>(List<T> items, int page, int size, long totalItems, int totalPages) {}
 
@@ -55,6 +56,8 @@ public class JobController {
             Integer postedWithinDays,
             @RequestParam(defaultValue = "posted") @Parameter(description = "posted (newest posting date first) | discovered")
             String sort,
+            @RequestParam(defaultValue = "false") @Parameter(description = "Hide Master's/PhD-only postings")
+            boolean undergradOnly,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
 
@@ -72,16 +75,16 @@ public class JobController {
         var pageable = PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100));
 
         Page<JobPosting> result = sort.equals("posted")
-                ? jobs.searchByPostedDate(blankToNull(company), cat, pattern, since, pageable)
-                : jobs.searchByDiscoveredDate(blankToNull(company), cat, pattern, since, pageable);
+                ? jobs.searchByPostedDate(blankToNull(company), cat, pattern, since, undergradOnly, pageable)
+                : jobs.searchByDiscoveredDate(blankToNull(company), cat, pattern, since, undergradOnly, pageable);
 
         List<Long> ids = result.getContent().stream().map(JobPosting::getId).toList();
         Set<Long> tracked = ids.isEmpty() ? Set.of() : applications.findTrackedJobIds(CurrentUser.id(jwt), ids);
 
         List<JobResponse> items = result.getContent().stream()
                 .map(j -> new JobResponse(j.getId(), j.getSource(), j.getCompany(), j.getTitle(), j.getLocation(),
-                        j.getUrl(), j.getPostedAt(), j.getDiscoveredAt(), j.getCategory(), j.getTerm(),
-                        tracked.contains(j.getId())))
+                        j.getUrl(), j.getPostedAt(), j.getPostedDateSource(), j.getDiscoveredAt(), j.getCategory(),
+                        j.getTerm(), j.getDegreeLevel(), tracked.contains(j.getId())))
                 .toList();
         return new PageResponse<>(items, result.getNumber(), result.getSize(), result.getTotalElements(),
                 result.getTotalPages());

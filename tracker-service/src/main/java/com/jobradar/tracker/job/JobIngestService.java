@@ -26,34 +26,43 @@ public class JobIngestService {
     private final Counter ingested;
     private final Counter duplicates;
     private final Counter crossSourceDuplicates;
+    private final Counter improved;
 
     public JobIngestService(JobPostingRepository jobs, MeterRegistry meters) {
         this.jobs = jobs;
         this.ingested = meters.counter("tracker.jobs.ingested");
         this.duplicates = meters.counter("tracker.jobs.duplicates");
         this.crossSourceDuplicates = meters.counter("tracker.jobs.cross_source_duplicates");
+        this.improved = meters.counter("tracker.jobs.improved");
     }
 
     public enum Outcome { CREATED, DUPLICATE, CROSS_SOURCE_DUPLICATE }
 
     public Outcome ingest(JobDiscoveredEvent e) {
-        if (jobs.existsBySourceAndCompanyAndExternalId(e.source(), e.company(), e.externalId())) {
+        String title = truncate(e.title(), 500);
+        Instant now = Instant.now();
+        Instant postedAt = toInstant(e.postedAt());
+
+        var same = jobs.findBySourceAndCompanyAndExternalId(e.source(), e.company(), e.externalId());
+        if (same.isPresent()) {
+            improve(same.get(), e, postedAt);
             duplicates.increment();
             return Outcome.DUPLICATE;
         }
-        String title = truncate(e.title(), 500);
-        Instant now = Instant.now();
-        if (jobs.existsByCanonicalUrl(Dedup.canonicalUrl(e.url()))
-                || jobs.existsByFingerprintAndDiscoveredAtAfter(
-                        Dedup.fingerprint(e.company(), title), now.minus(CROSS_SOURCE_WINDOW))) {
+        var sameRole = jobs.findFirstByCanonicalUrlOrderByIdAsc(Dedup.canonicalUrl(e.url()))
+                .or(() -> jobs.findFirstByFingerprintAndDiscoveredAtAfterOrderByIdAsc(
+                        Dedup.fingerprint(e.company(), title), now.minus(CROSS_SOURCE_WINDOW)));
+        if (sameRole.isPresent()) {
+            improve(sameRole.get(), e, postedAt);
             crossSourceDuplicates.increment();
             return Outcome.CROSS_SOURCE_DUPLICATE;
         }
         try {
             jobs.saveAndFlush(new JobPosting(
                     e.source(), e.company(), e.externalId(), title, truncate(e.location(), 500), e.url(),
-                    toInstant(e.postedAt()), e.discoveredAt() != null ? e.discoveredAt().toInstant() : now,
-                    truncate(e.category(), 32), truncate(e.term(), 64)));
+                    postedAt, e.discoveredAt() != null ? e.discoveredAt().toInstant() : now,
+                    truncate(e.category(), 32), truncate(e.term(), 64),
+                    truncate(e.postedAtSource(), 16), truncate(e.degreeLevel(), 16)));
         } catch (DataIntegrityViolationException race) {
             // Another consumer inserted the same posting between our check and insert.
             duplicates.increment();
@@ -62,6 +71,15 @@ public class JobIngestService {
         ingested.increment();
         log.debug("ingested {} posting '{}' at {}", e.source(), e.title(), e.company());
         return Outcome.CREATED;
+    }
+
+    /** A later sighting may carry better data (e.g. the employer's verified date): keep the best. */
+    private void improve(JobPosting existing, JobDiscoveredEvent e, Instant postedAt) {
+        if (existing.improveFrom(postedAt, e.postedAtSource(), truncate(e.category(), 32),
+                truncate(e.term(), 64), truncate(e.degreeLevel(), 16))) {
+            jobs.save(existing);
+            improved.increment();
+        }
     }
 
     private static Instant toInstant(OffsetDateTime t) {

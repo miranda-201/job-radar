@@ -67,6 +67,9 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 
 export type JobSort = "posted" | "discovered";
 
+/** employer = published by the company's ATS; approximate = "Posted N days ago"; list = added to a GitHub list. */
+export type DateSource = "employer" | "approximate" | "list";
+
 export interface Job {
   id: number;
   source: SourceType;
@@ -75,9 +78,11 @@ export interface Job {
   location: string | null;
   url: string;
   postedAt: string | null;
+  postedDateSource: DateSource | null;
   discoveredAt: string;
   category: Category | null;
   term: string | null;
+  degreeLevel: "undergrad" | "graduate" | null;
   tracked: boolean;
 }
 

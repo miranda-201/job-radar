@@ -92,12 +92,20 @@ export const api = {
     request<Application>(`/api/applications/${id}/move`, { method: "PUT", body: json({ status, position }) }),
   deleteApplication: (id: number) => request<void>(`/api/applications/${id}`, { method: "DELETE" }),
 
-  jobs: (params: { q?: string; category?: Category | ""; postedWithinDays?: number; sort?: JobSort; page?: number }) => {
+  jobs: (params: {
+    q?: string;
+    category?: Category | "";
+    postedWithinDays?: number;
+    sort?: JobSort;
+    undergradOnly?: boolean;
+    page?: number;
+  }) => {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
     if (params.category) qs.set("category", params.category);
     if (params.postedWithinDays) qs.set("postedWithinDays", String(params.postedWithinDays));
     qs.set("sort", params.sort ?? "posted");
+    if (params.undergradOnly) qs.set("undergradOnly", "true");
     qs.set("page", String(params.page ?? 0));
     return request<Page<Job>>(`/api/jobs?${qs}`);
   },

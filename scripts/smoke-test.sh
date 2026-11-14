@@ -23,11 +23,15 @@ curl -fsS "${AUTH[@]}" "$BASE/api/scraper/targets" | jq -e 'length > 0' >/dev/nu
 curl -s -o /dev/null -w '%{http_code}' "$BASE/api/scraper/targets" | grep -q 401 || fail "scraper allowed anonymous access"
 
 step "trigger a sweep of live career pages"
-curl -fsS -X POST "${AUTH[@]}" "$BASE/api/scraper/scrape" \
-  | jq -r '.results[] | "  \(.target_id): \(.matched) matched, \(.new) new\(if .error then " ERROR " + .error else "" end)"'
+CODE=$(curl -sS -o /tmp/sweep.json -w '%{http_code}' -X POST "${AUTH[@]}" "$BASE/api/scraper/scrape")
+case "$CODE" in
+  200) jq -r '.results[] | "  \(.target_id): \(.matched) matched, \(.new) new\(if .error then " ERROR " + .error else "" end)"' /tmp/sweep.json ;;
+  409) echo "  startup sweep already running (409); waiting for its results" ;;
+  *)   fail "sweep request returned HTTP $CODE" ;;
+esac
 
 step "postings flow through RabbitMQ into PostgreSQL"
-for i in $(seq 1 30); do
+for i in $(seq 1 90); do
   TOTAL=$(curl -fsS "${AUTH[@]}" "$BASE/api/jobs?size=1" | jq .totalItems)
   [[ "$TOTAL" -gt 0 ]] && break
   sleep 2

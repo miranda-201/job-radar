@@ -71,8 +71,8 @@ def test_workday_rejects_non_workday_url():
 )
 def test_workday_relative_dates(text, days):
     now = datetime(2026, 11, 14, 15, 30, tzinfo=UTC)
-    midnight = datetime(2026, 11, 14, tzinfo=UTC)
-    assert workday.parse_posted_on(text, now) == midnight - timedelta(days=days)
+    noon = datetime(2026, 11, 14, 12, tzinfo=UTC)
+    assert workday.parse_posted_on(text, now) == noon - timedelta(days=days)
 
 
 def test_workday_unknown_date_text_is_none():

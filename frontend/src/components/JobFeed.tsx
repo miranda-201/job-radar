@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { fullDate, isFresh, postedLabel } from "../dates";
+import { dateTooltip, isFresh, postedLabel } from "../dates";
 import {
   CATEGORIES,
   CATEGORY_LABEL,
@@ -12,6 +12,15 @@ import {
 } from "../types";
 
 const HOUR = 3_600_000;
+const UNDERGRAD_KEY = "jobradar.undergradOnly";
+
+function loadUndergradOnly(): boolean {
+  try {
+    return localStorage.getItem(UNDERGRAD_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 const WINDOWS: { days: number; label: string }[] = [
   { days: 0, label: "Any time" },
@@ -34,6 +43,7 @@ export default function JobFeed() {
   const [category, setCategory] = useState<Category | "">("");
   const [within, setWithin] = useState(0);
   const [sort, setSort] = useState<JobSort>("posted");
+  const [undergradOnly, setUndergradOnly] = useState(loadUndergradOnly);
   const [page, setPage] = useState(0);
   const [data, setData] = useState<Page<Job> | null>(null);
   const [counts, setCounts] = useState<Partial<Record<Category, number>>>({});
@@ -57,13 +67,24 @@ export default function JobFeed() {
 
   useEffect(() => {
     api
-      .jobs({ q: query, category, postedWithinDays: within, sort, page })
+      .jobs({ q: query, category, postedWithinDays: within, sort, undergradOnly, page })
       .then((d) => {
         setData(d);
         setError(null);
       })
       .catch((e) => setError(e.message));
-  }, [query, category, within, sort, page]);
+  }, [query, category, within, sort, undergradOnly, page]);
+
+  function toggleUndergrad() {
+    const next = !undergradOnly;
+    setUndergradOnly(next);
+    setPage(0);
+    try {
+      localStorage.setItem(UNDERGRAD_KEY, String(next));
+    } catch {
+      /* preference just won't persist */
+    }
+  }
 
   async function track(job: Job) {
     try {
@@ -115,12 +136,21 @@ export default function JobFeed() {
             {counts[c] != null && <span className="chip-count">{counts[c]!.toLocaleString()}</span>}
           </button>
         ))}
+        <span className="chip-divider" aria-hidden />
+        <button
+          className={undergradOnly ? "chip active" : "chip"}
+          aria-pressed={undergradOnly}
+          onClick={toggleUndergrad}
+          title="Hide internships open only to Master's, PhD or MBA students"
+        >
+          {undergradOnly ? "✓ " : ""}Undergrad only
+        </button>
       </div>
 
       {error && <div className="error">{error}</div>}
       {data && (
         <p className="muted small result-count">
-          {data.totalItems.toLocaleString()} internships
+          {data.totalItems.toLocaleString()} {undergradOnly ? "undergrad-eligible " : ""}internships
           {sort === "posted" ? ", newest posting first" : ", most recently found first"}
         </p>
       )}
@@ -138,7 +168,7 @@ export default function JobFeed() {
           <li key={job.id} className="feed-row">
             <div className="feed-main">
               <div className="feed-title">
-                {isFresh(job.postedAt) && <span className="badge new">NEW</span>}
+                {isFresh(job.postedAt) && job.postedDateSource !== "list" && <span className="badge new">NEW</span>}
                 <a href={job.url} target="_blank" rel="noreferrer">
                   {job.title}
                 </a>
@@ -148,11 +178,15 @@ export default function JobFeed() {
                 {job.location && ` · ${job.location}`}
               </div>
               <div className="feed-meta small">
-                <span className="posted" title={job.postedAt ? fullDate(job.postedAt) : undefined}>
-                  {postedLabel(job.postedAt)}
+                <span
+                  className={job.postedDateSource === "list" ? "posted unverified" : "posted"}
+                  title={dateTooltip(job.postedAt, job.postedDateSource)}
+                >
+                  {postedLabel(job.postedAt, job.postedDateSource)}
                 </span>
                 {job.category && <span className={`tag cat-${job.category}`}>{CATEGORY_LABEL[job.category]}</span>}
                 {job.term && <span className="tag">{job.term}</span>}
+                {job.degreeLevel === "graduate" && <span className="tag grad">Master's / PhD</span>}
                 <span className="muted">
                   via {SOURCE_LABEL[job.source] ?? job.source} · found {ago(job.discoveredAt)}
                 </span>

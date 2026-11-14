@@ -69,7 +69,8 @@ Each service owns its data and can be deployed, scaled, and failed independently
 - **Stateless JWT auth across languages.** The tracker issues HS256 tokens with Spring Security's OAuth2 resource-server support. The Python scraper validates the same token with a shared key, so there are no session lookups or service-to-service auth calls. Each service authorizes requests on its own.
 - **Reaching startups through GitHub lists.** Small companies rarely have a watchable ATS board, but community lists like [SimplifyJobs/Summer2027-Internships](https://github.com/SimplifyJobs/Summer2027-Internships) track thousands of them and publish a machine-readable `listings.json`. A `github_list` adapter reads any list in that format, using HTTP ETags so an unchanged 13 MB list costs one `304`.
 - **Cross-source dedup.** The same role often appears on its company's ATS *and* on several GitHub lists. The tracker collapses duplicates by canonical URL (tracking params stripped) and by a normalized `company|title` fingerprint over a 60-day window, so each role appears once.
-- **Sorting by real posting dates.** Every adapter maps the source's own publish date (Greenhouse `first_published`, Lever `createdAt`, Ashby `publishedAt`, the list's `date_posted`, and Workday's "Posted N days ago"). The feed sorts by it, newest first, and can filter to the last 24 hours, 3 days, week, or month.
+- **Verified posting dates, not second-hand ones.** GitHub lists record when a maintainer *added* a role, often days after the employer posted it, and Workday boards only say "Posted 9 Days Ago". For every new posting, the scraper resolves shortlinks to the real job page and asks that ATS for the employer's own publish date: Workday's job-detail `startDate`, Greenhouse `first_published`, Lever `createdAt`, or Ashby `publishedAt`. Dates that can't be verified (company sites, iCIMS, and so on) are labeled **"Listed …"** instead of "Posted …", so the UI never passes off a list date as the employer's. When the same role later arrives with a verified date, the tracker upgrades the stored row. The feed sorts by posting date, newest first, and can filter to the last 24 hours, 3 days, week, or month.
+- **Undergrad-only filter.** Each posting is tagged `undergrad`, `graduate` (Master's/PhD/MBA only), or unknown. The tag comes from the list's degree requirements when present, otherwise from the title ("Software PhD Intern", "Intern – MS/PhD", but not "New Grad"). One toggle hides graduate-only roles; unknowns stay visible.
 - **Using the ATS JSON APIs instead of parsing HTML.** Greenhouse and Lever expose public job-board APIs. Workday pages are client-rendered, but the page itself loads its data from a JSON endpoint (`/wday/cxs/{tenant}/{site}/jobs`), which the adapter paginates. Each ATS is one small adapter behind a common `JobSource` protocol, so adding a new one is about 40 lines.
 - **Failure isolation.** One broken career page records an error for that target and never stops the sweep for the others.
 - **Per-user data isolation.** Every application query is scoped by the JWT's user id, so another user's card id returns `404`, not `403`. That avoids leaking which ids exist.
@@ -125,7 +126,7 @@ cd frontend && npm install && npm run dev
 |---|---|---|
 | POST | `/auth/register`, `/auth/login` | Returns a JWT |
 | GET | `/auth/me` | Current user |
-| GET | `/jobs?q=&category=&postedWithinDays=&sort=posted\|discovered&page=&size=` | Paginated feed, newest posting first by default, with a `tracked` flag per user |
+| GET | `/jobs?q=&category=&postedWithinDays=&undergradOnly=&sort=posted\|discovered&page=&size=` | Paginated feed, newest posting first by default. Each job carries `postedDateSource` (`employer` / `approximate` / `list`), `degreeLevel`, and a per-user `tracked` flag |
 | GET | `/jobs/categories`, `/jobs/companies` | Posting counts per role category and per company |
 | GET / POST | `/applications` | Board / track a job (`jobId`) or add a manual card |
 | PATCH | `/applications/{id}` | Edit notes and details |
@@ -150,10 +151,10 @@ Both services expose health checks and Prometheus metrics: `/health` and `/metri
 
 | Suite | What it covers |
 |---|---|
-| `scraper-service` pytest (55 tests) | All 5 source adapters, CS role classification, GitHub-list ETag caching, seeding of new default sources, keyword matching, dedup across sweeps, per-target failure isolation, publish-failure rollback, JWT enforcement, and an HTTP-mocked sweep through the API |
-| `tracker-service` JUnit + MockMvc (H2) | Register/login, validation errors, ingest idempotency, cross-source dedup, sorting and filtering the feed by posting date, category, and recency, the full Kanban flow (track, move, reorder, delete, stats), and cross-user isolation |
+| `scraper-service` pytest (77 tests) | All 5 source adapters, employer-date verification (shortlink resolution, Workday/Greenhouse/Lever/Ashby detail APIs, failure fallback), CS role and degree-level classification, GitHub-list ETag caching, seeding of new default sources, keyword matching, dedup across sweeps, per-target failure isolation, publish-failure rollback, JWT enforcement, and an HTTP-mocked sweep through the API |
+| `tracker-service` JUnit + MockMvc (H2) | Register/login, validation errors, ingest idempotency, cross-source dedup, upgrading list dates to verified employer dates, sorting and filtering the feed by posting date, category, recency, and degree level, the full Kanban flow (track, move, reorder, delete, stats), and cross-user isolation |
 | `tracker-service` Testcontainers | Real PostgreSQL + RabbitMQ: raw JSON published the way the Python scraper sends it is persisted once, poison messages land in the DLQ, and the feed queries run on Postgres |
-| `frontend` Vitest | Board grouping, the optimistic move algorithm, and posted-date labels |
+| `frontend` Vitest | Board grouping, the optimistic move algorithm, and posted/listed date labels |
 | `scripts/smoke-test.sh` | Full stack through the nginx gateway: auth, cross-service JWT, live scrape, event ingestion, and the Kanban move |
 
 The GitHub Actions pipeline ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) runs on every push and PR:

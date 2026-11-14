@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.classify import RoleCategory
+from app.classify import DegreeLevel, RoleCategory
 
 
 class SourceType(str, Enum):
@@ -18,6 +18,12 @@ class SourceType(str, Enum):
     WORKDAY = "workday"
     ASHBY = "ashby"
     GITHUB_LIST = "github_list"
+
+
+class DateSource(str, Enum):
+    EMPLOYER = "employer"  # the employer's ATS published this date
+    APPROXIMATE = "approximate"  # employer-provided but coarse ("Posted 9 Days Ago")
+    LIST = "list"  # when a third-party list added the role; may lag the real posting
 
 
 class Target(BaseModel):
@@ -82,6 +88,8 @@ class JobPosting(BaseModel):
     category: RoleCategory | None = None
     term: str | None = Field(default=None, description="e.g. 'Summer 2027', when the source provides it")
     internship: bool = Field(default=False, description="True when the source itself labels the role an internship")
+    date_source: DateSource = DateSource.EMPLOYER
+    degree_level: DegreeLevel | None = None
 
     @property
     def dedup_key(self) -> str:
@@ -103,8 +111,10 @@ class JobDiscoveredEvent(BaseModel):
     location: str | None
     url: str
     postedAt: datetime | None
+    postedAtSource: str = DateSource.EMPLOYER.value
     category: str | None = None
     term: str | None = None
+    degreeLevel: str | None = None
     discoveredAt: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
@@ -117,8 +127,10 @@ class JobDiscoveredEvent(BaseModel):
             location=p.location,
             url=p.url,
             postedAt=p.posted_at,
+            postedAtSource=p.date_source.value,
             category=p.category.value if p.category else None,
             term=p.term,
+            degreeLevel=p.degree_level.value if p.degree_level else None,
         )
 
 
