@@ -57,9 +57,14 @@ class ApiIntegrationTest {
     }
 
     private JobDiscoveredEvent event(String externalId, String title) {
-        return new JobDiscoveredEvent(UUID.randomUUID().toString(), "job.discovered", "greenhouse", "Acme",
-                externalId, title, "Chicago, IL", "https://acme.com/jobs/" + externalId,
-                OffsetDateTime.parse("2026-11-01T09:00:00-05:00"), OffsetDateTime.now());
+        return event("greenhouse", "Acme", externalId, title, "https://acme.com/jobs/" + externalId,
+                OffsetDateTime.parse("2026-11-01T09:00:00-05:00"), "software");
+    }
+
+    private JobDiscoveredEvent event(String source, String company, String externalId, String title, String url,
+                                     OffsetDateTime postedAt, String category) {
+        return new JobDiscoveredEvent(UUID.randomUUID().toString(), "job.discovered", source, company,
+                externalId, title, "Chicago, IL", url, postedAt, OffsetDateTime.now(), category, "Summer 2027");
     }
 
     // ---- auth ----------------------------------------------------------------
@@ -107,8 +112,64 @@ class ApiIntegrationTest {
         assertThat(ingest.ingest(e)).isEqualTo(Outcome.DUPLICATE);
         // Redelivery with a different eventId is still the same posting.
         assertThat(ingest.ingest(new JobDiscoveredEvent("other-id", e.eventType(), e.source(), e.company(),
-                e.externalId(), e.title(), e.location(), e.url(), e.postedAt(), e.discoveredAt())))
+                e.externalId(), e.title(), e.location(), e.url(), e.postedAt(), e.discoveredAt(), null, null)))
                 .isEqualTo(Outcome.DUPLICATE);
+    }
+
+    @Test
+    void sameRoleFromAnotherSourceIsCollapsed() {
+        String co = "Startup-" + UUID.randomUUID();
+        var posted = OffsetDateTime.now().minusDays(1);
+        assertThat(ingest.ingest(event("greenhouse", co, "1", "Software Engineer Intern (Summer 2027)",
+                "https://boards.greenhouse.io/x/jobs/1?gh_jid=1", posted, "software"))).isEqualTo(Outcome.CREATED);
+        // Same URL listed on a GitHub list, with tracking params and different id.
+        assertThat(ingest.ingest(event("github_list", co, "sim-9", "SWE Intern",
+                "https://BOARDS.greenhouse.io/x/jobs/1/?gh_jid=1&utm_source=Simplify&ref=Simplify", posted, "software")))
+                .isEqualTo(Outcome.CROSS_SOURCE_DUPLICATE);
+        // Different URL, but same company + title (punctuation/case-insensitive).
+        assertThat(ingest.ingest(event("github_list", co, "van-3", "software engineer intern - summer 2027",
+                "https://go.example/abc", posted, "software"))).isEqualTo(Outcome.CROSS_SOURCE_DUPLICATE);
+        // A genuinely different role at the same company is kept.
+        assertThat(ingest.ingest(event("github_list", co, "van-4", "Data Science Intern",
+                "https://go.example/def", posted, "data_ml"))).isEqualTo(Outcome.CREATED);
+    }
+
+    @Test
+    void feedSortsByPostingDateAndFiltersByCategoryAndRecency() throws Exception {
+        String token = register();
+        String tag = "sortcheck" + UUID.randomUUID().toString().substring(0, 8);
+        var now = OffsetDateTime.now();
+        // Discovered in this order, but posted in a different order.
+        ingest.ingest(event("lever", "Co", tag + "-old", "Backend Intern " + tag, "https://x/" + tag + "/old",
+                now.minusDays(20), "software"));
+        ingest.ingest(event("lever", "Co", tag + "-new", "ML Intern " + tag, "https://x/" + tag + "/new",
+                now.minusHours(3), "data_ml"));
+        ingest.ingest(event("lever", "Co", tag + "-mid", "Cloud Intern " + tag, "https://x/" + tag + "/mid",
+                now.minusDays(2), "cloud_infra"));
+
+        JsonNode byPosted = read(call(get("/api/jobs").param("q", tag), token, null).andExpect(status().isOk()));
+        assertThat(titles(byPosted)).containsExactly("ML Intern " + tag, "Cloud Intern " + tag, "Backend Intern " + tag);
+        assertThat(byPosted.get("items").get(0).get("category").asText()).isEqualTo("data_ml");
+        assertThat(byPosted.get("items").get(0).get("term").asText()).isEqualTo("Summer 2027");
+        assertThat(byPosted.get("items").get(0).get("postedAt").isNull()).isFalse();
+
+        JsonNode byDiscovered = read(call(get("/api/jobs").param("q", tag).param("sort", "discovered"), token, null));
+        assertThat(titles(byDiscovered)).containsExactly("Cloud Intern " + tag, "ML Intern " + tag, "Backend Intern " + tag);
+
+        assertThat(titles(read(call(get("/api/jobs").param("q", tag).param("category", "cloud_infra"), token, null))))
+                .containsExactly("Cloud Intern " + tag);
+        assertThat(titles(read(call(get("/api/jobs").param("q", tag).param("postedWithinDays", "7"), token, null))))
+                .containsExactly("ML Intern " + tag, "Cloud Intern " + tag);
+
+        call(get("/api/jobs").param("category", "marketing"), token, null).andExpect(status().isBadRequest());
+        call(get("/api/jobs").param("sort", "random"), token, null).andExpect(status().isBadRequest());
+        call(get("/api/jobs/categories"), token, null).andExpect(status().isOk());
+    }
+
+    private static java.util.List<String> titles(JsonNode page) {
+        var out = new java.util.ArrayList<String>();
+        page.get("items").forEach(j -> out.add(j.get("title").asText()));
+        return out;
     }
 
     // ---- jobs feed + kanban --------------------------------------------------

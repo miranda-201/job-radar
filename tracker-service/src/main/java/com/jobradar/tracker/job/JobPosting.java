@@ -40,10 +40,22 @@ public class JobPosting {
     @Column(name = "discovered_at", nullable = false)
     private Instant discoveredAt;
 
+    @Column(length = 32)
+    private String category;
+
+    @Column(length = 64)
+    private String term;
+
+    @Column(name = "canonical_url", length = 2048)
+    private String canonicalUrl;
+
+    @Column(length = 800)
+    private String fingerprint;
+
     protected JobPosting() {}
 
     public JobPosting(String source, String company, String externalId, String title, String location,
-                      String url, Instant postedAt, Instant discoveredAt) {
+                      String url, Instant postedAt, Instant discoveredAt, String category, String term) {
         this.source = source;
         this.company = company;
         this.externalId = externalId;
@@ -52,6 +64,10 @@ public class JobPosting {
         this.url = url;
         this.postedAt = postedAt;
         this.discoveredAt = discoveredAt;
+        this.category = category;
+        this.term = term;
+        this.canonicalUrl = Dedup.canonicalUrl(url);
+        this.fingerprint = Dedup.fingerprint(company, title);
     }
 
     public Long getId() { return id; }
@@ -63,4 +79,8 @@ public class JobPosting {
     public String getUrl() { return url; }
     public Instant getPostedAt() { return postedAt; }
     public Instant getDiscoveredAt() { return discoveredAt; }
+    public String getCategory() { return category; }
+    public String getTerm() { return term; }
+    public String getCanonicalUrl() { return canonicalUrl; }
+    public String getFingerprint() { return fingerprint; }
 }

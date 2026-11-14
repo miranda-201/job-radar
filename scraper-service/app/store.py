@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from app.models import Target
 
 TARGETS_KEY = "scraper:targets"
+SEEDED_KEY = "scraper:seeded"
 SEEN_KEY = "scraper:seen:{target_id}"
 
 
@@ -27,6 +28,10 @@ class Store(Protocol):
         ...
 
     async def forget_seen(self, target_id: str, key: str) -> None: ...
+    async def mark_seeded(self, target_id: str) -> bool:
+        """Record that a default target was offered once. True the first time only."""
+        ...
+
     async def ping(self) -> bool: ...
 
 
@@ -56,6 +61,9 @@ class RedisStore:
     async def forget_seen(self, target_id: str, key: str) -> None:
         await self._r.srem(SEEN_KEY.format(target_id=target_id), key)
 
+    async def mark_seeded(self, target_id: str) -> bool:
+        return bool(await self._r.sadd(SEEDED_KEY, target_id))
+
     async def ping(self) -> bool:
         try:
             return bool(await self._r.ping())
@@ -67,6 +75,7 @@ class InMemoryStore:
     def __init__(self) -> None:
         self._targets: dict[str, str] = {}
         self._seen: dict[str, set[str]] = {}
+        self._seeded: set[str] = set()
 
     async def list_targets(self) -> list[Target]:
         return sorted((Target.model_validate_json(v) for v in self._targets.values()), key=lambda t: t.id)
@@ -92,16 +101,28 @@ class InMemoryStore:
     async def forget_seen(self, target_id: str, key: str) -> None:
         self._seen.get(target_id, set()).discard(key)
 
+    async def mark_seeded(self, target_id: str) -> bool:
+        if target_id in self._seeded:
+            return False
+        self._seeded.add(target_id)
+        return True
+
     async def ping(self) -> bool:
         return True
 
 
 async def seed_targets(store: Store, path: str) -> int:
-    """Load default targets from JSON on first boot (never overwrites user edits)."""
-    if await store.list_targets():
-        return 0
+    """Add each default target once, ever.
+
+    New defaults shipped in later releases reach existing installs, but a default the
+    user deleted is never re-added, because it is remembered as already seeded.
+    """
     with open(path) as fh:
-        targets = [Target.model_validate(t) for t in json.load(fh)]
-    for t in targets:
-        await store.upsert_target(t)
-    return len(targets)
+        defaults = [Target.model_validate(t) for t in json.load(fh)]
+    existing = {t.id for t in await store.list_targets()}
+    added = 0
+    for t in defaults:
+        if await store.mark_seeded(t.id) and t.id not in existing:
+            await store.upsert_target(t)
+            added += 1
+    return added

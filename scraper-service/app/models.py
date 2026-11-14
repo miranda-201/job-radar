@@ -9,11 +9,15 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.classify import RoleCategory
+
 
 class SourceType(str, Enum):
     GREENHOUSE = "greenhouse"
     LEVER = "lever"
     WORKDAY = "workday"
+    ASHBY = "ashby"
+    GITHUB_LIST = "github_list"
 
 
 class Target(BaseModel):
@@ -26,12 +30,21 @@ class Target(BaseModel):
         description=(
             "Greenhouse/Lever: the board token (e.g. 'stripe'). "
             "Workday: the full career-site URL "
-            "(e.g. https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite)."
+            "(e.g. https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite). "
+            "Ashby: the job-board name (e.g. 'ramp'). "
+            "GitHub list: 'owner/repo' of a Simplify-format internship list, or a raw listings.json URL."
         )
     )
     keywords: list[str] = Field(
         default_factory=list,
-        description="Case-insensitive title filters. Empty list matches every posting.",
+        description=(
+            "Case-insensitive whole-word title filters (e.g. 'intern'). Empty list matches every posting. "
+            "Postings the source itself marks as internships always match."
+        ),
+    )
+    cs_only: bool = Field(
+        default=True,
+        description="Only keep computer-science roles (software, data/AI/ML, cloud/infra, security).",
     )
     enabled: bool = True
 
@@ -49,6 +62,12 @@ class Target(BaseModel):
         pattern = r"\b(?:" + "|".join(re.escape(k.strip()) for k in self.keywords) + r")s?\b"
         return re.search(pattern, title, re.IGNORECASE) is not None
 
+    def accepts(self, posting: JobPosting) -> bool:
+        """Keyword/internship filter, then (optionally) the CS-role filter."""
+        if not (posting.internship or self.matches(posting.title)):
+            return False
+        return posting.category is not None or not self.cs_only
+
 
 class JobPosting(BaseModel):
     """A normalized posting, independent of which ATS it came from."""
@@ -60,6 +79,9 @@ class JobPosting(BaseModel):
     location: str | None = None
     url: str
     posted_at: datetime | None = None
+    category: RoleCategory | None = None
+    term: str | None = Field(default=None, description="e.g. 'Summer 2027', when the source provides it")
+    internship: bool = Field(default=False, description="True when the source itself labels the role an internship")
 
     @property
     def dedup_key(self) -> str:
@@ -81,6 +103,8 @@ class JobDiscoveredEvent(BaseModel):
     location: str | None
     url: str
     postedAt: datetime | None
+    category: str | None = None
+    term: str | None = None
     discoveredAt: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
@@ -93,6 +117,8 @@ class JobDiscoveredEvent(BaseModel):
             location=p.location,
             url=p.url,
             postedAt=p.posted_at,
+            category=p.category.value if p.category else None,
+            term=p.term,
         )
 
 

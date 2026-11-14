@@ -7,6 +7,8 @@ from typing import Protocol
 import httpx
 
 from app.models import JobPosting, SourceType, Target
+from app.sources.ashby import AshbySource
+from app.sources.github_list import GithubListSource
 from app.sources.greenhouse import GreenhouseSource
 from app.sources.lever import LeverSource
 from app.sources.workday import WorkdaySource
@@ -20,6 +22,8 @@ REGISTRY: dict[SourceType, JobSource] = {
     SourceType.GREENHOUSE: GreenhouseSource(),
     SourceType.LEVER: LeverSource(),
     SourceType.WORKDAY: WorkdaySource(),
+    SourceType.ASHBY: AshbySource(),
+    SourceType.GITHUB_LIST: GithubListSource(),
 }
 
 

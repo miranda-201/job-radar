@@ -1,8 +1,25 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { Job, Page } from "../types";
+import { fullDate, isFresh, postedLabel } from "../dates";
+import {
+  CATEGORIES,
+  CATEGORY_LABEL,
+  SOURCE_LABEL,
+  type Category,
+  type Job,
+  type JobSort,
+  type Page,
+} from "../types";
 
 const HOUR = 3_600_000;
+
+const WINDOWS: { days: number; label: string }[] = [
+  { days: 0, label: "Any time" },
+  { days: 1, label: "Past 24 hours" },
+  { days: 3, label: "Past 3 days" },
+  { days: 7, label: "Past week" },
+  { days: 30, label: "Past month" },
+];
 
 function ago(iso: string): string {
   const h = Math.floor((Date.now() - new Date(iso).getTime()) / HOUR);
@@ -14,10 +31,12 @@ function ago(iso: string): string {
 export default function JobFeed() {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
-  const [company, setCompany] = useState("");
+  const [category, setCategory] = useState<Category | "">("");
+  const [within, setWithin] = useState(0);
+  const [sort, setSort] = useState<JobSort>("posted");
   const [page, setPage] = useState(0);
   const [data, setData] = useState<Page<Job> | null>(null);
-  const [companies, setCompanies] = useState<{ company: string; jobs: number }[]>([]);
+  const [counts, setCounts] = useState<Partial<Record<Category, number>>>({});
   const [error, setError] = useState<string | null>(null);
 
   // Debounce typing so we don't query on every keystroke.
@@ -30,18 +49,21 @@ export default function JobFeed() {
   }, [q]);
 
   useEffect(() => {
-    api.companies().then(setCompanies).catch(() => {});
+    api
+      .categories()
+      .then((cs) => setCounts(Object.fromEntries(cs.map((c) => [c.category, c.jobs]))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     api
-      .jobs({ q: query, company, page })
+      .jobs({ q: query, category, postedWithinDays: within, sort, page })
       .then((d) => {
         setData(d);
         setError(null);
       })
       .catch((e) => setError(e.message));
-  }, [query, company, page]);
+  }, [query, category, within, sort, page]);
 
   async function track(job: Job) {
     try {
@@ -52,68 +74,99 @@ export default function JobFeed() {
     }
   }
 
+  const reset = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setPage(0);
+  };
+
   return (
     <section>
       <div className="toolbar">
         <input
           className="search"
-          placeholder="Search titles or locations (e.g. backend, Chicago, 2027)"
+          placeholder="Search role, company or location (e.g. backend, Visa, Chicago)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          value={company}
-          onChange={(e) => {
-            setCompany(e.target.value);
-            setPage(0);
-          }}
-        >
-          <option value="">All companies</option>
-          {companies.map((c) => (
-            <option key={c.company} value={c.company}>
-              {c.company} ({c.jobs})
+        <select value={within} onChange={(e) => reset(setWithin)(Number(e.target.value))} aria-label="Posted within">
+          {WINDOWS.map((w) => (
+            <option key={w.days} value={w.days}>
+              {w.label}
             </option>
           ))}
         </select>
+        <select value={sort} onChange={(e) => reset(setSort)(e.target.value as JobSort)} aria-label="Sort">
+          <option value="posted">Most recently posted</option>
+          <option value="discovered">Most recently found</option>
+        </select>
       </div>
+
+      <div className="chips" role="group" aria-label="Role category">
+        <button className={category === "" ? "chip active" : "chip"} onClick={() => reset(setCategory)("")}>
+          All CS roles
+        </button>
+        {CATEGORIES.map((c) => (
+          <button
+            key={c}
+            className={category === c ? "chip active" : "chip"}
+            onClick={() => reset(setCategory)(c)}
+          >
+            {CATEGORY_LABEL[c]}
+            {counts[c] != null && <span className="chip-count">{counts[c]!.toLocaleString()}</span>}
+          </button>
+        ))}
+      </div>
+
       {error && <div className="error">{error}</div>}
+      {data && (
+        <p className="muted small result-count">
+          {data.totalItems.toLocaleString()} internships
+          {sort === "posted" ? ", newest posting first" : ", most recently found first"}
+        </p>
+      )}
       {data && data.items.length === 0 && (
         <div className="empty-state">
-          <p>No postings yet.</p>
+          <p>No postings match.</p>
           <p className="muted">
-            The scraper sweeps every watched company on a schedule. Add companies or trigger a scan from{" "}
-            <a href="#targets">Watched Companies</a>.
+            Try widening the date range or clearing filters. New postings arrive every sweep; you can also{" "}
+            <a href="#targets">watch more companies</a>.
           </p>
         </div>
       )}
       <ul className="feed">
-        {data?.items.map((job) => {
-          const fresh = Date.now() - new Date(job.discoveredAt).getTime() < 24 * HOUR;
-          return (
-            <li key={job.id} className="feed-row">
-              <div className="feed-main">
-                <div className="feed-title">
-                  {fresh && <span className="badge new">NEW</span>}
-                  <a href={job.url} target="_blank" rel="noreferrer">
-                    {job.title}
-                  </a>
-                </div>
-                <div className="muted small">
-                  <strong>{job.company}</strong>
-                  {job.location && ` · ${job.location}`} · found {ago(job.discoveredAt)} ·{" "}
-                  <span className={`src src-${job.source}`}>{job.source}</span>
-                </div>
+        {data?.items.map((job) => (
+          <li key={job.id} className="feed-row">
+            <div className="feed-main">
+              <div className="feed-title">
+                {isFresh(job.postedAt) && <span className="badge new">NEW</span>}
+                <a href={job.url} target="_blank" rel="noreferrer">
+                  {job.title}
+                </a>
               </div>
-              {job.tracked ? (
-                <span className="tracked">✓ On board</span>
-              ) : (
-                <button className="primary small" onClick={() => track(job)}>
-                  Track
-                </button>
-              )}
-            </li>
-          );
-        })}
+              <div className="muted small">
+                <strong>{job.company}</strong>
+                {job.location && ` · ${job.location}`}
+              </div>
+              <div className="feed-meta small">
+                <span className="posted" title={job.postedAt ? fullDate(job.postedAt) : undefined}>
+                  {postedLabel(job.postedAt)}
+                </span>
+                {job.category && <span className={`tag cat-${job.category}`}>{CATEGORY_LABEL[job.category]}</span>}
+                {job.term && <span className="tag">{job.term}</span>}
+                <span className="muted">
+                  via {SOURCE_LABEL[job.source] ?? job.source} · found {ago(job.discoveredAt)}
+                </span>
+              </div>
+            </div>
+            {job.tracked ? (
+              <span className="tracked">✓ On board</span>
+            ) : (
+              <button className="primary small" onClick={() => track(job)}>
+                Track
+              </button>
+            )}
+          </li>
+        ))}
       </ul>
       {data && data.totalPages > 1 && (
         <div className="pager">
@@ -121,7 +174,7 @@ export default function JobFeed() {
             ← Newer
           </button>
           <span className="muted">
-            Page {page + 1} of {data.totalPages} · {data.totalItems} postings
+            Page {page + 1} of {data.totalPages.toLocaleString()}
           </span>
           <button className="ghost" disabled={page + 1 >= data.totalPages} onClick={() => setPage(page + 1)}>
             Older →

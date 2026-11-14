@@ -40,6 +40,7 @@ class MessagingPipelineContainerTest {
 
     @Autowired RabbitTemplate rabbitTemplate;
     @Autowired JobPostingRepository jobs;
+    @Autowired com.jobradar.tracker.job.JobIngestService ingest;
 
     private static Message json(String body) {
         return MessageBuilder.withBody(body.getBytes(StandardCharsets.UTF_8))
@@ -71,6 +72,30 @@ class MessagingPipelineContainerTest {
             assertThat(dead).isNotNull();
             assertThat(new String(dead.getBody(), StandardCharsets.UTF_8)).contains("no company");
         });
-        assertThat(jobs.count()).isEqualTo(1);
+        assertThat(jobs.existsBySourceAndCompanyAndExternalId("workday", "NVIDIA", "JR2027176")).isTrue();
+        assertThat(jobs.findAll()).filteredOn(j -> j.getCompany().equals("NVIDIA")).hasSize(1);
+    }
+
+    /** Runs the feed queries on real PostgreSQL (null-parameter handling differs from H2). */
+    @Test
+    void feedQueriesWorkOnPostgres() {
+        var now = java.time.OffsetDateTime.now();
+        ingest.ingest(new com.jobradar.tracker.job.JobDiscoveredEvent("e-pg1", "job.discovered", "github_list",
+                "PgCo", "pg-1", "Platform Engineer Intern", "Remote", "https://pg.example/1",
+                now.minusDays(1), now, "cloud_infra", "Summer 2027"));
+        ingest.ingest(new com.jobradar.tracker.job.JobDiscoveredEvent("e-pg2", "job.discovered", "github_list",
+                "PgCo", "pg-2", "Data Intern", "Remote", "https://pg.example/2",
+                null, now, "data_ml", null));
+        var page = org.springframework.data.domain.PageRequest.of(0, 10);
+        var epoch = java.time.Instant.EPOCH;
+
+        assertThat(jobs.searchByPostedDate(null, null, null, epoch, page).getTotalElements()).isGreaterThanOrEqualTo(2);
+        assertThat(jobs.searchByPostedDate("PgCo", "cloud_infra", "%platform%", epoch, page).getContent())
+                .extracting(com.jobradar.tracker.job.JobPosting::getExternalId).containsExactly("pg-1");
+        // Undated posting falls back to its discovery time, so it counts as "recent" and sorts first.
+        assertThat(jobs.searchByPostedDate("PgCo", null, null, java.time.Instant.now().minusSeconds(3600), page)
+                .getContent()).extracting(com.jobradar.tracker.job.JobPosting::getExternalId).containsExactly("pg-2");
+        assertThat(jobs.searchByDiscoveredDate("PgCo", null, null, epoch, page).getTotalElements()).isEqualTo(2);
+        assertThat(jobs.countByCategory()).isNotEmpty();
     }
 }

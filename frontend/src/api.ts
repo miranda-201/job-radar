@@ -1,5 +1,7 @@
 import type {
   Application,
+  Category,
+  JobSort,
   AuthResponse,
   Job,
   Page,
@@ -90,14 +92,17 @@ export const api = {
     request<Application>(`/api/applications/${id}/move`, { method: "PUT", body: json({ status, position }) }),
   deleteApplication: (id: number) => request<void>(`/api/applications/${id}`, { method: "DELETE" }),
 
-  jobs: (params: { q?: string; company?: string; page?: number }) => {
+  jobs: (params: { q?: string; category?: Category | ""; postedWithinDays?: number; sort?: JobSort; page?: number }) => {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
-    if (params.company) qs.set("company", params.company);
+    if (params.category) qs.set("category", params.category);
+    if (params.postedWithinDays) qs.set("postedWithinDays", String(params.postedWithinDays));
+    qs.set("sort", params.sort ?? "posted");
     qs.set("page", String(params.page ?? 0));
     return request<Page<Job>>(`/api/jobs?${qs}`);
   },
   companies: () => request<{ company: string; jobs: number }[]>("/api/jobs/companies"),
+  categories: () => request<{ category: Category; jobs: number }[]>("/api/jobs/categories"),
 
   targets: () => request<Target[]>("/api/scraper/targets"),
   createTarget: (t: Target) => request<Target>("/api/scraper/targets", { method: "POST", body: json(t) }),

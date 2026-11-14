@@ -200,3 +200,25 @@ button.icon { background: none; padding: 0 4px; color: var(--muted); font-size: 
   .content { padding: 16px; }
   .targets { display: block; overflow-x: auto; }
 }
+
+/* ---- feed filters + metadata ---- */
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 12px; }
+.chip {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 5px 12px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center;
+}
+.chip:hover { background: var(--surface-2); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.chip-count { font-size: 11px; opacity: 0.75; }
+.result-count { margin: 0 0 8px; }
+.feed-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 4px; }
+.posted { font-weight: 600; }
+.tag { background: var(--surface-2); border-radius: 4px; padding: 0 6px; font-size: 11.5px; color: var(--muted); }
+.cat-software { color: #2563eb; }
+.cat-data_ml { color: #7a5af8; }
+.cat-cloud_infra { color: #0e9384; }
+.cat-security { color: #d92d20; }
+.src-ashby { color: #2e90fa; }
+.src-github_list { color: var(--text); }
+.check { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.toolbar select { flex: 0 0 auto; }

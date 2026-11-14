@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
-import type { Target, TargetResult } from "../types";
+import { SOURCE_LABEL, type Target, type TargetResult } from "../types";
 
 const BOARD_HINT: Record<Target["source"], string> = {
   greenhouse: "board token, e.g. stripe (from boards.greenhouse.io/stripe)",
   lever: "company slug, e.g. palantir (from jobs.lever.co/palantir)",
   workday: "career site URL, e.g. https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite",
+  ashby: "board name, e.g. ramp (from jobs.ashbyhq.com/ramp)",
+  github_list: "owner/repo of a Simplify-format list, e.g. SimplifyJobs/Summer2027-Internships",
 };
 
 const slugify = (s: string) =>
@@ -25,6 +27,7 @@ export default function Targets() {
   const [source, setSource] = useState<Target["source"]>("greenhouse");
   const [board, setBoard] = useState("");
   const [keywords, setKeywords] = useState("intern, new grad");
+  const [csOnly, setCsOnly] = useState(true);
 
   async function load() {
     try {
@@ -84,10 +87,14 @@ export default function Targets() {
         company: company.trim(),
         source,
         board: board.trim(),
-        keywords: keywords
-          .split(",")
-          .map((k) => k.trim())
-          .filter(Boolean),
+        keywords:
+          source === "github_list"
+            ? []
+            : keywords
+                .split(",")
+                .map((k) => k.trim())
+                .filter(Boolean),
+        cs_only: csOnly,
         enabled: true,
       });
       setTargets((cur) => [...cur, created].sort((a, b) => a.id.localeCompare(b.id)));
@@ -112,11 +119,13 @@ export default function Targets() {
       {error && <div className="error">{error}</div>}
 
       <form className="inline-form" onSubmit={add}>
-        <input placeholder="Company name" required value={company} onChange={(e) => setCompany(e.target.value)} />
+        <input placeholder={source === "github_list" ? "Label, e.g. Simplify list" : "Company name"} required value={company} onChange={(e) => setCompany(e.target.value)} />
         <select value={source} onChange={(e) => setSource(e.target.value as Target["source"])}>
           <option value="greenhouse">Greenhouse</option>
           <option value="lever">Lever</option>
           <option value="workday">Workday</option>
+          <option value="ashby">Ashby (startups)</option>
+          <option value="github_list">GitHub internship list</option>
         </select>
         <input
           className="grow"
@@ -125,11 +134,16 @@ export default function Targets() {
           value={board}
           onChange={(e) => setBoard(e.target.value)}
         />
-        <input
-          placeholder="Keywords (comma separated)"
-          value={keywords}
-          onChange={(e) => setKeywords(e.target.value)}
-        />
+        {source !== "github_list" && (
+          <input
+            placeholder="Keywords (comma separated)"
+            value={keywords}
+            onChange={(e) => setKeywords(e.target.value)}
+          />
+        )}
+        <label className="check">
+          <input type="checkbox" checked={csOnly} onChange={(e) => setCsOnly(e.target.checked)} /> CS roles only
+        </label>
         <button className="primary">Watch</button>
       </form>
 
@@ -138,7 +152,7 @@ export default function Targets() {
           <tr>
             <th>Company</th>
             <th>Source</th>
-            <th>Keywords</th>
+            <th>Filter</th>
             <th>Last scan</th>
             <th />
           </tr>
@@ -152,9 +166,12 @@ export default function Targets() {
                   <strong>{t.company}</strong>
                 </td>
                 <td>
-                  <span className={`src src-${t.source}`}>{t.source}</span>
+                  <span className={`src src-${t.source}`}>{SOURCE_LABEL[t.source] ?? t.source}</span>
                 </td>
-                <td className="small">{t.keywords.length ? t.keywords.join(", ") : <em>all postings</em>}</td>
+                <td className="small">
+                  {t.keywords.length ? t.keywords.join(", ") : <em>all internships</em>}
+                  {t.cs_only && <span className="muted"> · CS only</span>}
+                </td>
                 <td className="small">
                   {!r ? (
                     <span className="muted">—</span>

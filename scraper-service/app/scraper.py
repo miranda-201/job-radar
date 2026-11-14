@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 import httpx
 from prometheus_client import Counter, Histogram
 
+from app.classify import classify
 from app.models import JobDiscoveredEvent, ScrapeReport, Target, TargetResult
 from app.publisher import Publisher
 from app.sources import JobSource, source_for
@@ -76,7 +77,9 @@ class ScrapeRunner:
         JOBS_FETCHED.labels(target.id).inc(len(postings))
 
         for posting in postings:
-            if not target.matches(posting.title):
+            if posting.category is None:
+                posting.category = classify(posting.title)
+            if not target.accepts(posting):
                 continue
             result.matched += 1
             if not await self._store.mark_seen(target.id, posting.dedup_key):

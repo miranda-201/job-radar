@@ -20,4 +20,6 @@ public record JobDiscoveredEvent(
         String location,
         @NotBlank String url,
         OffsetDateTime postedAt,
-        OffsetDateTime discoveredAt) {}
+        OffsetDateTime discoveredAt,
+        String category,
+        String term) {}

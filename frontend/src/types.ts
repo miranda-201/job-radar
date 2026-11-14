@@ -45,15 +45,39 @@ export interface Application {
   updatedAt: string;
 }
 
+export type SourceType = "greenhouse" | "lever" | "workday" | "ashby" | "github_list";
+
+export const SOURCE_LABEL: Record<SourceType, string> = {
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  workday: "Workday",
+  ashby: "Ashby",
+  github_list: "GitHub list",
+};
+
+export const CATEGORIES = ["software", "data_ml", "cloud_infra", "security"] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+export const CATEGORY_LABEL: Record<Category, string> = {
+  software: "Software",
+  data_ml: "Data / AI / ML",
+  cloud_infra: "Cloud / Infra",
+  security: "Security",
+};
+
+export type JobSort = "posted" | "discovered";
+
 export interface Job {
   id: number;
-  source: "greenhouse" | "lever" | "workday";
+  source: SourceType;
   company: string;
   title: string;
   location: string | null;
   url: string;
   postedAt: string | null;
   discoveredAt: string;
+  category: Category | null;
+  term: string | null;
   tracked: boolean;
 }
 
@@ -74,9 +98,10 @@ export interface Stats {
 export interface Target {
   id: string;
   company: string;
-  source: "greenhouse" | "lever" | "workday";
+  source: SourceType;
   board: string;
   keywords: string[];
+  cs_only: boolean;
   enabled: boolean;
 }
 

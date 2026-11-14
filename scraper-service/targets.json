@@ -1,8 +1,13 @@
 [
+  {"id": "simplify-internships", "company": "Simplify internship list (GitHub)", "source": "github_list", "board": "SimplifyJobs/Summer2027-Internships"},
+  {"id": "vanshb03-internships", "company": "vanshb03 internship list (GitHub)", "source": "github_list", "board": "vanshb03/Summer2027-Internships"},
   {"id": "stripe", "company": "Stripe", "source": "greenhouse", "board": "stripe", "keywords": ["intern", "new grad", "university"]},
   {"id": "databricks", "company": "Databricks", "source": "greenhouse", "board": "databricks", "keywords": ["intern", "new grad", "university"]},
   {"id": "robinhood", "company": "Robinhood", "source": "greenhouse", "board": "robinhood", "keywords": ["intern", "new grad"]},
   {"id": "figma", "company": "Figma", "source": "greenhouse", "board": "figma", "keywords": ["intern", "early career"]},
   {"id": "palantir", "company": "Palantir", "source": "lever", "board": "palantir", "keywords": ["intern", "new grad"]},
-  {"id": "nvidia", "company": "NVIDIA", "source": "workday", "board": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "keywords": ["intern"]}
+  {"id": "nvidia", "company": "NVIDIA", "source": "workday", "board": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite", "keywords": ["intern"]},
+  {"id": "ramp", "company": "Ramp", "source": "ashby", "board": "ramp", "keywords": ["intern", "new grad"]},
+  {"id": "notion", "company": "Notion", "source": "ashby", "board": "notion", "keywords": ["intern", "new grad"]},
+  {"id": "linear", "company": "Linear", "source": "ashby", "board": "linear", "keywords": ["intern", "new grad"]}
 ]
